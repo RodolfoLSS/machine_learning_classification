@@ -6,6 +6,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.decomposition import PCA
 
 
 class FeatureEngineer:
@@ -17,6 +18,8 @@ class FeatureEngineer:
         self._extract_business_features()
         self._merge_categories()
         self._generate_dummies()
+
+
 
     def _extract_business_features(self):
         """"
@@ -150,10 +153,33 @@ class FeatureEngineer:
 
             df["RFM"] = (rfb_dict['Recency_bin'] + rfb_dict['Freq_bin'] + rfb_dict['Mnt_bin']).astype(int)
 
+            # Creating new feature using PCA to summarize all features in 2 dimensions (2 new features)
+            columns = df.columns
+            columns = columns.drop(["Response", "Marital_Status", "Education"])
+
+            pca = PCA(n_components=2)
+            principalComponents = pca.fit_transform(df[columns])
+
+            df["pc1_"] = principalComponents[:, 0]
+            df["pc2_"] = principalComponents[:, 1]
+
+            # Creating new feature using PCA to summarize all features in 5 dimensions (5 new features)
+            pca = PCA(n_components=5)
+            principalComponents = pca.fit_transform(df[columns])
+
+            df["pc1"] = principalComponents[:, 0]
+            df["pc2"] = principalComponents[:, 1]
+            df["pc3"] = principalComponents[:, 2]
+            df["pc4"] = principalComponents[:, 3]
+            df["pc5"] = principalComponents[:, 4]
+
+
 
 
         create_bus_feat(self.training)
         create_bus_feat(self.unseen)
+
+
 
     def _merge_categories(self):
         """"
@@ -196,6 +222,8 @@ class FeatureEngineer:
         create_hasoffsrping(self.training)
         create_hasoffsrping(self.unseen)
 
+
+
     def _generate_dummies(self):
         """"
             Use OneHotEncoding to generate dummies for the merged Marital_Status and Education features
@@ -220,6 +248,8 @@ class FeatureEngineer:
         self.unseen = pd.concat([self.unseen, df_temp], axis=1)
         for c in columns:
             self.unseen[c] = self.unseen[c].astype('category')
+
+
 
     def box_cox_transformations(self, num_features, target):
         """"
@@ -262,12 +292,16 @@ class FeatureEngineer:
                 # 3) 1) 5) choose the best so far Box-Cox transformation based on Chi-Squared test
                 if chi_test_value > best_test_value:
                     best_test_value, best_trans_label, best_power_trans = chi_test_value, trans_key, feature_trans
+            if (feature == 'BxCxT_MntMeatProducts'):
+                print(best_trans_label)
             self.best_bx_cx_dict[feature] = (best_trans_label, best_power_trans)
             # 3) 2) append transformed feature to the data frame
             self.training[feature] = best_power_trans
             # 3) 3) apply the best Box-Cox transformation, determined on training data, on unseen data
             self.unseen[feature] = np.round(self._bx_cx_trans_dict[best_trans_label](self.unseen[feature]), 4)
         self.box_cox_features = num_features_BxCx
+
+
 
     def rank_features_chi_square(self, continuous_flist, categorical_flist):
         """"
@@ -333,3 +367,27 @@ class FeatureEngineer:
         input_features = list(self._rank[criteria].index[0:n_top])
         input_features.append("Response")
         return self.training[input_features], self.unseen[input_features]
+
+
+
+    def _input_missing_values(self):
+        """"
+            Inputs any missing values of numerical features with its mean in order to deal with the weird missings.
+
+            NOTE: we are doing this here due to missing values in the newly engineered features that could
+            appear due to weird interaction between features, like dividing by zero or something of that nature.
+        """
+
+        def input_missing(df):
+            num_feat_list = df._get_numeric_data().drop(["Response", "Education", "Marital_Status"], axis=1).columns
+            for feat in num_feat_list:
+                if (df[feat].isna().sum() > 0):
+                    df[feat] = df[feat].fillna(df[feat].mean())
+
+            return
+
+        # We need to apply on training AND on unseen data, since the Box-Cox transformations were applied on both datsets.
+        input_missing(self.training)
+        input_missing(self.unseen)
+
+        return

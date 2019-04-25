@@ -17,6 +17,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import VotingClassifier
+from sklearn.ensemble import BaggingClassifier
 
 def grid_search_MLP(training, param_grid, seed, cv=5):
     """ Multi-layer Perceptron classifier hyperparameter estimation using grid search with cross-validation.
@@ -71,19 +74,36 @@ def assess_generalization_auprc(estimator, unseen):
 
     return auc
 
-def create_model():
+def create_model_chis():
     # create model
     model = Sequential()
-    model.add(layers.Dense(5, kernel_regularizer=regularizers.l2(0.001),activation='relu', input_dim=47))
-    model.add(layers.Dense(5, kernel_regularizer=regularizers.l2(0.001),activation='relu'))
+    model.add(layers.Dense(100,activation='relu', input_dim=47))
+    model.add(layers.Dropout(rate = 0.2))
+    model.add(layers.Dense(100,activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
     model.add(layers.Dense(1, activation='sigmoid'))
     # Compile model
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
     return model
 
-def grid_search_NN(training, param_grid, seed, cv=5):
+def create_model_dta():
+    # create model
+    model = Sequential()
+    model.add(layers.Dense(200,activation='relu', input_dim=9))
+    model.add(layers.Dropout(rate = 0.2))
+    model.add(layers.Dense(200,activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    model.add(layers.Dense(1, activation='sigmoid'))
+    # Compile model
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    return model
+
+def grid_search_NN(training, param_grid, type, cv=5):
     # fix random seed for reproducibility
-    model = KerasClassifier(build_fn=create_model)
+    if type == "dta":
+        model = KerasClassifier(build_fn=create_model_dta)
+    else:
+        model = KerasClassifier(build_fn=create_model_chis)
 
     dummies = list(training.select_dtypes(include=["category", "object"]).columns)
     if not dummies:
@@ -144,15 +164,16 @@ def grid_search_DT(training, param_grid, seed, cv=5):
 
     dummies = list(training.select_dtypes(include=["category", "object"]).columns)
     if not dummies:
-        pipeline = Pipeline([("std_scaler", StandardScaler()), ("dt", DecisionTreeClassifier(random_state=seed))])
+        pipeline = Pipeline([("dt", DecisionTreeClassifier(random_state=seed))])
     else:
         filt = ~ training.loc[:, training.columns != "Response"].columns.isin(dummies)
         continuous_idx = np.arange(0, len(filt))[filt]
         not_filt = [not i for i in filt]
         dummies_idx = np.arange(0, len(filt))[not_filt]
         pipeline = Pipeline(
-            [("std_scaler", CustomScaler(continuous_idx, dummies_idx)), ("dt", DecisionTreeClassifier(random_state=seed))])
+            [("dt", DecisionTreeClassifier(random_state=seed))])
 
+    #training = BalanceDataset(training)
     dt_gscv = GridSearchCV(pipeline, param_grid, cv=cv, n_jobs=-1, scoring=make_scorer(average_precision_score))
     dt_gscv.fit(training.loc[:, training.columns != "Response"].values, training["Response"].values)
 
@@ -162,14 +183,14 @@ def grid_search_RF(training, param_grid, seed, cv=5):
 
     dummies = list(training.select_dtypes(include=["category", "object"]).columns)
     if not dummies:
-        pipeline = Pipeline([("std_scaler", StandardScaler()), ("rf", RandomForestClassifier())])
+        pipeline = Pipeline([("rf", RandomForestClassifier())])
     else:
         filt = ~ training.loc[:, training.columns != "Response"].columns.isin(dummies)
         continuous_idx = np.arange(0, len(filt))[filt]
         not_filt = [not i for i in filt]
         dummies_idx = np.arange(0, len(filt))[not_filt]
         pipeline = Pipeline(
-            [("std_scaler", CustomScaler(continuous_idx, dummies_idx)), ("rf", RandomForestClassifier())])
+            [("rf", RandomForestClassifier())])
 
     rf_gscv = GridSearchCV(pipeline, param_grid, cv=cv, n_jobs=-1, scoring=make_scorer(average_precision_score))
     rf_gscv.fit(training.loc[:, training.columns != "Response"].values, training["Response"].values)
@@ -194,3 +215,54 @@ def grid_search_NB(training, param_grid, seed, cv=5):
     nb_gscv.fit(training.loc[:, training.columns != "Response"].values, training["Response"].values)
 
     return nb_gscv
+
+def grid_search_LR(training, param_grid, seed, cv=5):
+
+    dummies = list(training.select_dtypes(include=["category", "object"]).columns)
+    if not dummies:
+        pipeline = Pipeline([("std_scaler", StandardScaler()), ("nb", LogisticRegression())])
+    else:
+        filt = ~ training.loc[:, training.columns != "Response"].columns.isin(dummies)
+        continuous_idx = np.arange(0, len(filt))[filt]
+        not_filt = [not i for i in filt]
+        dummies_idx = np.arange(0, len(filt))[not_filt]
+        pipeline = Pipeline(
+            [("std_scaler", CustomScaler(continuous_idx, dummies_idx)), ("nb", LogisticRegression())])
+
+    #training = BalanceDataset(training)
+    lr_gscv = GridSearchCV(pipeline, param_grid, cv=cv, n_jobs=-1, scoring=make_scorer(average_precision_score))
+    lr_gscv.fit(training.loc[:, training.columns != "Response"].values, training["Response"].values)
+
+    return lr_gscv
+
+def Voting(training, clfs, seed, cv=5):
+
+    clfs["voting"] = VotingClassifier(estimators=list(clfs.items()), voting='soft',
+                                      scoring=make_scorer(average_precision_score))
+    print(clfs)
+
+    #for name, clf in clfs.items():
+        #clf.fit(training.loc[:, training.columns != "Response"].values, training["Response"].values)
+
+
+    #return clf
+
+def grid_search_BAG(training, param_grid, voters, seed, cv=5):
+
+    dummies = list(training.select_dtypes(include=["category", "object"]).columns)
+    if not dummies:
+        pipeline = Pipeline([("bag", BaggingClassifier())])
+    else:
+        filt = ~ training.loc[:, training.columns != "Response"].columns.isin(dummies)
+        continuous_idx = np.arange(0, len(filt))[filt]
+        not_filt = [not i for i in filt]
+        dummies_idx = np.arange(0, len(filt))[not_filt]
+        pipeline = Pipeline(
+            [("bag", VotingClassifier(estimators=voters, voting='soft'))])
+
+    bag_gscv = GridSearchCV(pipeline, param_grid, cv=cv, n_jobs=-1, scoring=make_scorer(average_precision_score))
+    bag_gscv.fit(training.loc[:, training.columns != "Response"].values, training["Response"].values)
+
+    return bag_gscv
+
+

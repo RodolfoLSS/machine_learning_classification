@@ -17,7 +17,7 @@ class Processor:
         outliers removal and imputation.
 
     """
-    def __init__(self, training, unseen):
+    def __init__(self, training, unseen, outlier_removal):
         """ Constructor
 
             It is worth to notice that both training and unseen are nothing more nothing less
@@ -38,15 +38,26 @@ class Processor:
         self._drop_constant_features()
         self._drop_categorical_missing_values()
 
-        # For now we will not be filtering out the outliers by std.
-        #num_features = self._filter_df_by_std()
-        #self._impute_num_missings_mean(num_features)
-        self._age_transformation()
 
         # Input missing values of Income and Year_Birth (weird values) with Linear Regression Model
         self._impute_missings_income_regression()
         self._impute_wrong_age_regression()
+
+        # Performs either uni or multivariate outlier detection and inputation/removal
+        if (outlier_removal == "uni"):
+            # Filtering by 3 std all numerical features and inputting the missings with Linear Regression Model
+            self._filter_df_by_std_with_lr_input()
+        if(outlier_removal == "multi"):
+            # Filters out multivariate outliers through Mahalanobis Distance
+            self._multivar_outlier_filter()
+
+
+        # Binning of Age and Income features creating new features
         self._discreet()
+
+
+
+
 
     def _drop_constant_features(self):
         """"
@@ -56,6 +67,8 @@ class Processor:
             I will do nothing for nothing. We can remove it in the future if we see it really is useless.
         """
 
+
+
     def _drop_categorical_missing_values(self):
         """"
             Drops Missing Values from categorical values, even though I think the only missing values are in Income.
@@ -64,43 +77,59 @@ class Processor:
         self.training.dropna(subset=self.feat_c, inplace=True)
         self.unseen.dropna(subset=self.feat_c, inplace=True)
 
-    def _filter_df_by_std(self):
+
+
+    def _filter_df_by_std_with_lr_input(self):
         """"
-            Inputs NaN in outliers, that is, values higher or lower than 3 STD's from the mean.
+            Puts NaN in outliers, that is, values higher or lower than 3 STD's from the mean, then input these NaNs with
+            a Linear Regression model with all other features as independent variables.
         """
+        print("####################################################################\n")
+        print("#        UNIVARIATE OUTLIER DETECTION BY FILTERING 3 STDS\n")
+        print("#        INPUTATION WITH LINEAR REGRESSION MODEL\n")
+        print("####################################################################\n")
+
         def _filter_ser_by_std(series_, n_stdev=3.0):
             mean_, stdev_ = series_.mean(), series_.std()
             cutoff = stdev_ * n_stdev
             lower_bound, upper_bound = mean_ - cutoff, mean_ + cutoff
             return [True if i < lower_bound or i > upper_bound else False for i in series_]
 
-        training_num = self.training._get_numeric_data().drop(["Response"], axis=1)
-        mask = training_num.apply(axis=0, func=_filter_ser_by_std, n_stdev=3.0)
-        training_num[mask] = np.NaN
-        self.training[training_num.columns] = training_num
+        def lr_input(X, feat):
+            y = X[feat]
+            y = y[-y.isna()]
 
-        return list(training_num.columns)
+            X["Marital_Status"] = pd.Categorical(X["Marital_Status"])
+            X["Marital_Status"] = X["Marital_Status"].cat.codes
 
-    def _impute_num_missings_mean(self, num_features):
-        """"
-            Use the mean to input missing values into numeric variables.
-        """
-        self._imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
-        X_train_imputed = self._imputer.fit_transform(self.training[num_features].values)
-        X_unseen_imputed = self._imputer.transform(self.unseen[num_features].values)
+            X["Education"] = pd.Categorical(X["Education"])
+            X["Education"] = X["Education"].cat.codes
 
-        self.training[num_features] = X_train_imputed
-        self.unseen[num_features] = X_unseen_imputed
+            x_pred = X[X[feat].isna()]
+            x_pred = x_pred.drop(columns=feat)
 
-    def _age_transformation(self):
-        """"
-            Use the mean to input missing values into numeric variables.
-        """
-        self.training['Age'] = 2019 - self.training['Year_Birth']
-        self.unseen['Age'] = 2019 - self.unseen['Year_Birth']
+            X = X[-X[feat].isna()]
+            X = X.drop(columns=feat)
 
-        self.training.drop(columns="Year_Birth", inplace=True)
-        self.unseen.drop(columns="Year_Birth", inplace=True)
+            # Linear Regression Model
+            reg = LinearRegression().fit(X, y)
+
+            # Predictions
+            y_pred = reg.predict(x_pred)
+
+            return y_pred
+
+        num_feat_list = self.training._get_numeric_data().drop(["Response"], axis=1).columns
+        for feat in num_feat_list:
+            mask = _filter_ser_by_std(self.training[feat], n_stdev=3.0)
+            if (len(self.training[feat][mask]) > 0):
+                self.training[feat][mask] = np.NaN
+                y_pred_ = lr_input(self.training, feat)
+                self.training.loc[self.training[feat].isna(), feat] = y_pred_
+
+        return
+
+
 
     def _impute_missings_income_regression(self):
         """"
@@ -108,7 +137,7 @@ class Processor:
             an approximate value to the Income of these observations through the other independent variables.
         """
         # Function to return the predictions of the Linear Regression Model that receives as parameter the dataset
-        def lr_input(X):
+        def lr_input_income(X):
             y = X["Income"]
             y = y[-y.isna()]
 
@@ -136,11 +165,13 @@ class Processor:
         # Checks if there are cases that match the condition and then apply the fucntion and,
         # then, stores the predictions in the missing values
         if (len(self.training[self.training.Income.isna()])>0):
-            y_pred_tr = lr_input(self.training)
+            y_pred_tr = lr_input_income(self.training)
             self.training.loc[self.training.Income.isna(), "Income"] = y_pred_tr
         if (len(self.unseen[self.unseen.Income.isna()]) > 0):
-            y_pred_un = lr_input(self.unseen)
+            y_pred_un = lr_input_income(self.unseen)
             self.unseen.loc[self.unseen.Income.isna(), "Income"] = y_pred_un
+
+
 
     def _impute_wrong_age_regression(self):
         """"
@@ -174,7 +205,7 @@ class Processor:
 
             return y_pred
 
-        # Checks if there are cases that match the condition and then apply the fucntion and,
+        # Checks if there are cases that match the condition and then apply the function and,
         # then, stores the predictions in the missing values
         if (len(self.training[self.training["Age"] >= 90].Age)>0):
             y_pred_tr = lr_age_input(self.training)
@@ -184,10 +215,10 @@ class Processor:
             self.unseen.loc[self.unseen["Age"] >= 90, "Age"] = y_pred_un.round()
 
 
+
     def _discreet(self):
         """"
-            Method to rank all features according to chi-square test for independence in relation to Response.
-            All based solely on the training set.
+            Binning of Age and Income features into new categorical features.
         """
         bindisc = KBinsDiscretizer(n_bins=8, encode='ordinal', strategy="uniform")
         feature_bin_training = bindisc.fit_transform(self.training['Income'].values[:, np.newaxis])
@@ -200,3 +231,69 @@ class Processor:
         feature_bin_unseen = bindisc.fit_transform(self.unseen['Age'].values[:, np.newaxis])
         self.training['Age_d'] = pd.Series(feature_bin_training[:, 0], index=self.training.index)
         self.unseen['Age_d'] = pd.Series(feature_bin_unseen[:, 0], index=self.unseen.index)
+
+
+
+    def _multivar_outlier_filter(self):
+        """"
+            Detects multivariate outliers through Mahalanobis Distance and removes these rows from the training set.
+        """
+
+
+        print("#####################################################################\n")
+        print("#        MULTIVARIATE OUTLIER DETECTION THROUGH MAHALANOBIS DISTANCE\n")
+        print("#        DETECTED OUTLIERS REMOVED\n")
+        print("#####################################################################\n")
+
+        # Simple function to check if the matrix is positive definite (for example, it will return False if the matrix contains NaN).
+        def is_pos_def(A):
+            if np.allclose(A, A.T):
+                try:
+                    np.linalg.cholesky(A)
+                    return True
+                except np.linalg.LinAlgError:
+                    return False
+            else:
+                return False
+
+                # The function to calculate the Mahalanobis Distance. Returns a list of distances.
+
+        def MahalanobisDist(data):
+            covariance_matrix = np.cov(data, rowvar=False)
+            if is_pos_def(covariance_matrix):
+                inv_covariance_matrix = np.linalg.inv(covariance_matrix)
+                if is_pos_def(inv_covariance_matrix):
+                    vars_mean = []
+                    for i in range(data.shape[0]):
+                        vars_mean.append(list(data.mean(axis=0)))
+                    diff = data - vars_mean
+                    md = []
+                    for i in range(len(diff)):
+                        md.append(np.sqrt(diff[i].dot(inv_covariance_matrix).dot(diff[i])))
+                    return md
+                else:
+                    print("Error: Inverse of Covariance Matrix is not positive definite!")
+            else:
+                print("Error: Covariance Matrix is not positive definite!")
+
+        # Function to detect multivariate outliers from the Mahalanobis Distances. Returns an array of indexes of the outliers.
+        def MD_detectOutliers(data, extreme=False):
+            MD = MahalanobisDist(data)
+
+            std = np.std(MD)
+            k = 3. * std if extreme else 2. * std
+            m = np.mean(MD)
+            up_t = m + k
+            low_t = m - k
+            outliers = []
+            for i in range(len(MD)):
+                if (MD[i] >= up_t) or (MD[i] <= low_t):
+                    outliers.append(i)  # index of the outlier
+            return np.array(outliers)
+
+        # Gets the indexes of multivariate outliers
+        num_feat_list = self.training._get_numeric_data().drop(["Response", "Education", "Marital_Status"], axis=1).columns
+        outliers_i = MD_detectOutliers(np.array(self.training[num_feat_list]))
+        # Removes these rows of the training dataset
+        self.training = self.training.drop(self.training.index[outliers_i])
+        return

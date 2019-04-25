@@ -3,6 +3,7 @@ from typing import List
 
 import pandas as pd
 from datetime import datetime, date
+import numpy as np
 
 
 class Dataset:
@@ -16,13 +17,14 @@ class Dataset:
         """"
             The constructor method just executes all of its methods on the dataset.
         """
-        self.rm_df = pd.read_excel(full_path, index_col=0)
+        self.rm_df = pd.read_excel(full_path)
         self._drop_metadata_features()
         self._drop_doubleback_features()
         self._drop_unusual_classes()
         self._label_encoder()
         self._as_category()
         self._days_since_customer()
+        self._age_transformation()
 
     def _drop_metadata_features(self):
         """"
@@ -30,8 +32,7 @@ class Dataset:
             campaign.
         """
 
-        metadata_features = ['Z_CostContact', 'Z_Revenue']
-        self.rm_df.reset_index(drop=True, inplace=True)
+        metadata_features = ['Z_CostContact', 'Z_Revenue', 'ID']
         self.rm_df.drop(labels=metadata_features, axis=1, inplace=True)
 
 
@@ -98,3 +99,10 @@ class Dataset:
 
         self.rm_df["Dt_Customer"] = self.rm_df["Dt_Customer"].apply(lambda x: (datetime.today()-datetime.strptime(x, date_format)).days)
 
+    def _age_transformation(self):
+        """"
+            Use the mean to input missing values into numeric variables.
+        """
+        self.rm_df['Age'] = 2019 - self.rm_df['Year_Birth']
+
+        self.rm_df.drop(columns="Year_Birth", inplace=True)

@@ -16,6 +16,7 @@ class CustomScaler(TransformerMixin):
 
     def transform(self, X, y=None, copy=None):
         X_head = self.scaler.transform(X[:, self.continuous_idx])
+
         return np.concatenate((X_head, X[:, self.dummies_idx]), axis=1)
 
 def BalanceDataset(train_data):
