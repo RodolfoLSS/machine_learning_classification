@@ -3,6 +3,7 @@ import os
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from ml_bc_pipeline.data_loader import Dataset
+from ml_bc_pipeline.data_loader2 import Dataset2
 from ml_bc_pipeline.data_preprocessing import Processor
 from ml_bc_pipeline.feature_engineering import FeatureEngineer
 from ml_bc_pipeline.model import grid_search_MLPC, assess_generalization_auprc, calc_profit, \
@@ -10,21 +11,21 @@ from ml_bc_pipeline.model import grid_search_MLPC, assess_generalization_auprc, 
     grid_search_NB, grid_search_LR, grid_search_Bag, grid_search_DT, Voting, Adaboost
 from ml_bc_pipeline.utils import BalanceDataset, ensure_dir
 import numpy as np
-from ml_bc_pipeline.predictor import predict
 import matplotlib.pyplot as plt
+import pickle
 
 
-def main():
+def predict():
     ########################################################################################################################
     ##### LOAD DATA
-    #predict()
-
     # Choose working directory (path).
     os.chdir("/Users/RodolfoSaldanha/Desktop/ML/project1")  # Change this!
     # Name of the .xlsx file with the data.
     file_path = os.getcwd() + "/ml_project1_data.xlsx"
+    unseen = os.getcwd() + "/unseen_students.xlsx"
     # Load the data through the class Dataset.
     ds = Dataset(file_path)  # from data_leader.py
+    dsu = Dataset2(unseen)
 
 ########################################################################################################################
 ################ SETUP #################################################################################################
@@ -37,13 +38,13 @@ def main():
     # ["mlp", "nn", "svm", "knn", "dt", "rf", "nb", "lr", "vote", "bag", "ada"]
     #
     # NOTE: "ada" and "vote" need "nb" and "lr" to also be running.
-    #model_list = ["mlpc", "svm", "knn", "dt", "rf", "nb", "lr", "bag", "vote", "ada"]
-    model_list = ["nn"]
+    model_list = ["mlpc", "svm", "knn", "dt", "rf", "nb", "lr", "bag", "vote"]
+    #model_list = ["nb", "vote"]
 
     # Set the seeds.
     #
     #seeds = [12345, 9876]
-    seeds = np.random.randint(10000, size=5) # If random seeds are needed.
+    seeds = np.random.randint(10000, size=1) # If random seeds are needed.
 
 
     # Set the treshold for class assignment (for soft-decision).
@@ -75,15 +76,17 @@ def main():
         ########################################################################################################################
         ##### SPLIT IN TRAIN AND UNSEEN
         # Set seed.
-        DF_train, DF_unseen = train_test_split(ds.rm_df.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
-                                               random_state=seed)
+        # DF_train, DF_unseen = train_test_split(ds.rm_df.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+        #                                       random_state=seed)
+        DF_train = ds.rm_df.copy()
+        DF_unseen = dsu.rm_df.copy()
+        ######################################
 
         ########################################################################################################################
         ##### PREPROCESS
         # The preprocess and feature engineering implemented here is based on information gathered on Feature Exploration
         # Jupyter Notebook.
         pr = Processor(DF_train, DF_unseen, outliers)  # from data_preprocessing.py
-
         ########################################################################################################################
         ##### FEATURE ENGINEERING
         fe = FeatureEngineer(pr.training, pr.unseen)  # from feature_engineering.py
@@ -104,7 +107,8 @@ def main():
         categorical_flist = ["Kidhome", "Teenhome", "AcceptedCmp1", "AcceptedCmp2", "AcceptedCmp3",
                              "AcceptedCmp4", "AcceptedCmp5", "Complain", "HasOffspring", 'DT_Acc_1',
                              'DT_MS_Single', 'DT_MS_Widow', 'DT_MS_Divorced', 'DT_E_Phd', 'DT_E_Master',
-                             "DT_Age_4", "DT_Age_3", "DT_Age_2", "DT_Age_1", "DT_Income_3", "DT_Income_2", "DT_Income_1"]
+                             "DT_Age_4", "DT_Age_3", "DT_Age_2", "DT_Age_1", "DT_Income_3", "DT_Income_2",
+                             "DT_Income_1"]
 
         # Remove BxCxT_Recency because it's -0.9 correlated to BxCxT_RFM, which was originated from BxCxT_Recency
         continuous_flist.remove('BxCxT_Recency')
@@ -121,13 +125,12 @@ def main():
         # criteria = ["chisq" or "dta]
         # n_top = [from 1 to inf+]
 
-        DF_train_top_chi, DF_unseen_chi = fe.get_top(criteria="chisq", n_top=30)
-        DF_train_top_dta, DF_unseen_dta = fe.get_top(criteria="dta", n_top=5)
+        DF_train_top_chi, DF_unseen_chi = fe.get_top(criteria="chisq", n_top=47)
+        DF_train_top_dta, DF_unseen_dta = fe.get_top(criteria="dta", n_top=10)
 
         # corr = pd.DataFrame(DF_train_top_chi.corr())
         # corr.to_csv('bla.csv')
         # corr.to_csv('bla.xls')
-
     ########################################################################################################################
     ################ MODELS ################################################################################################
     ########################################################################################################################
@@ -139,9 +142,11 @@ def main():
             mlpc_param_grid = {'mlpc__hidden_layer_sizes': [(3), (6), (3, 3), (5, 5)],
                               'mlpc__learning_rate_init': [0.001, 0.01]}
 
+
             ##### Chisq Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
 
             mlpc_gscv_chi = grid_search_MLPC(DF_train_top, mlpc_param_grid, seed)
@@ -151,7 +156,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             mlpc_gscv_dta = grid_search_MLPC(DF_train_top, mlpc_param_grid, seed)
             auprc_mlpc_dta = assess_generalization_auprc(mlpc_gscv_dta.best_estimator_, DF_unseen_top)
@@ -187,7 +193,8 @@ def main():
 
             ##### Chisq Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             nn_gscv_chi = grid_search_NN(DF_train_top, nn_param_grid, "chi")
             auprc_nn_chi = assess_generalization_auprc(nn_gscv_chi.best_estimator_, DF_unseen_top)
@@ -195,11 +202,12 @@ def main():
             pd.DataFrame.from_dict(nn_gscv_chi.cv_results_).to_csv("nn_gscv_chi_" + str(seed) + ".csv")
 
             ##### DTA Feature Selection
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
-            
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
+            """
             nn_gscv_dta = grid_search_NN(DF_train_top, nn_param_grid, "dta")
             auprc_nn_dta = assess_generalization_auprc(nn_gscv_dta.best_estimator_, DF_unseen_top)
-            profit_nn_dta = calc_profit(nn_gscv_dta.best_estimator_, DF_unseen_top, treshold)
+            profit_nn_dta = calc_profit(nn_gscv_dta.best_estimator_, DF_unseen_top, treshold)"""
             ###########
             nn_gscv_dta = nn_gscv_chi
             auprc_nn_dta = auprc_nn_chi
@@ -235,7 +243,8 @@ def main():
 
             ##### Chisq Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             svm_gscv_chi = grid_search_SVM(DF_train_top, svm_param_grid, seed)
             auprc_svm_chi = assess_generalization_auprc(svm_gscv_chi.best_estimator_, DF_unseen_top)
@@ -244,7 +253,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             svm_gscv_dta = grid_search_SVM(DF_train_top, svm_param_grid, seed)
             auprc_svm_dta = assess_generalization_auprc(svm_gscv_dta.best_estimator_, DF_unseen_top)
@@ -282,7 +292,8 @@ def main():
             ##### Chisq Feature Selection
 
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             knn_gscv_chi = grid_search_KNN(DF_train_top, knn_param_grid, seed)
             auprc_knn_chi = assess_generalization_auprc(knn_gscv_chi.best_estimator_, DF_unseen_top)
@@ -291,7 +302,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             knn_gscv_dta = grid_search_KNN(DF_train_top, knn_param_grid, seed)
             auprc_knn_dta = assess_generalization_auprc(knn_gscv_dta.best_estimator_, DF_unseen_top)
@@ -328,7 +340,8 @@ def main():
             ##### Chisq Feature Selection
 
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             dt_gscv_chi = grid_search_DT(DF_train_top, dt_param_grid, seed)
             auprc_dt_chi = assess_generalization_auprc(dt_gscv_chi.best_estimator_, DF_unseen_top)
@@ -337,7 +350,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             dt_gscv_dta = grid_search_DT(DF_train_top, dt_param_grid, seed)
             auprc_dt_dta = assess_generalization_auprc(dt_gscv_dta.best_estimator_, DF_unseen_top)
@@ -374,7 +388,8 @@ def main():
             ##### Chisq Feature Selection
 
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             dte_gscv_chi = grid_search_DTE(DF_train_top, dte_param_grid, seed)
             auprc_dte_chi = assess_generalization_auprc(dte_gscv_chi.best_estimator_, DF_unseen_top)
@@ -383,7 +398,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             dte_gscv_dta = grid_search_DTE(DF_train_top, dte_param_grid, seed)
             auprc_dte_dta = assess_generalization_auprc(dte_gscv_dta.best_estimator_, DF_unseen_top)
@@ -422,7 +438,8 @@ def main():
             ##### Chisq Feature Selection
 
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             rf_gscv_chi = grid_search_RF(DF_train_top, rf_param_grid, seed)
             auprc_rf_chi = assess_generalization_auprc(rf_gscv_chi.best_estimator_, DF_unseen_top)
@@ -431,7 +448,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             rf_gscv_dta = grid_search_RF(DF_train_top, rf_param_grid, seed)
             auprc_rf_dta = assess_generalization_auprc(rf_gscv_dta.best_estimator_, DF_unseen_top)
@@ -465,18 +483,20 @@ def main():
 
             ##### Chisq Feature Selection
 
-
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            print('------------')
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=DF_train_top_chi["Response"],
+                                                                                          random_state=seed)
 
             nb_gscv_chi = grid_search_NB(DF_train_top, nb_param_grid, seed)
             auprc_nb_chi = assess_generalization_auprc(nb_gscv_chi.best_estimator_, DF_unseen_top)
             profit_nb_chi = calc_profit(nb_gscv_chi.best_estimator_, DF_unseen_top, treshold)
             pd.DataFrame.from_dict(nb_gscv_chi.cv_results_).to_csv("nb_gscv_chi_" + str(seed) + ".csv")
-
+            print('------------')
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
-
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=DF_train_top_dta["Response"],
+                                                                                          random_state=seed)
+            print('------------')
             nb_gscv_dta = grid_search_NB(DF_train_top, nb_param_grid, seed)
             auprc_nb_dta = assess_generalization_auprc(nb_gscv_dta.best_estimator_, DF_unseen_top)
             profit_nb_dta = calc_profit(nb_gscv_dta.best_estimator_, DF_unseen_top, treshold)
@@ -508,7 +528,8 @@ def main():
 
             ##### Chisq Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             lr_gscv_chi = grid_search_LR(DF_train_top, lr_param_grid, seed)
             auprc_lr_chi = assess_generalization_auprc(lr_gscv_chi.best_estimator_, DF_unseen_top)
@@ -517,7 +538,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             lr_gscv_dta = grid_search_LR(DF_train_top, lr_param_grid, seed)
             auprc_lr_dta = assess_generalization_auprc(lr_gscv_dta.best_estimator_, DF_unseen_top)
@@ -555,7 +577,8 @@ def main():
 
             ##### Chisq Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_chi.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             bag_gscv_chi = grid_search_Bag(DF_train_top, bag_param_grid, seed)
             auprc_bag_chi = assess_generalization_auprc(bag_gscv_chi.best_estimator_, DF_unseen_top)
@@ -564,7 +587,8 @@ def main():
 
             ##### DTA Feature Selection
 
-            DF_train_top, DF_unseen_top = DF_train_top_dta, DF_unseen_dta
+            DF_train_top, DF_unseen_top = train_test_split(DF_train_top_dta.copy(), test_size=0.2, stratify=ds.rm_df["Response"],
+                                                                                          random_state=seed)
 
             bag_gscv_dta = grid_search_Bag(DF_train_top, bag_param_grid, seed)
             auprc_bag_dta = assess_generalization_auprc(bag_gscv_dta.best_estimator_, DF_unseen_top)
@@ -598,7 +622,6 @@ def main():
                 nb = nb_gscv_dta
             else:
                 nb = nb_gscv_chi
-
             if (auprc_lr_dta > auprc_lr_chi):
                 lr = lr_gscv_dta
             else:
@@ -630,7 +653,7 @@ def main():
                 bag = bag_gscv_dta
             else:
                 bag = bag_gscv_chi
-
+            
             estimators = [('nb', nb.best_estimator_.named_steps['nb']),
                           ('lr', lr.best_estimator_.named_steps['lr']),
                           ('svm', svm.best_estimator_.named_steps['svm']),
@@ -644,9 +667,18 @@ def main():
 
             DF_train_top, DF_unseen_top = DF_train_top_chi, DF_unseen_chi
 
+            DF_unseen_chi.drop(columns="Response", inplace=True)
+
             vote_gscv_chi = Voting(DF_train_top, estimators, seed)
-            auprc_vote_chi = assess_generalization_auprc(vote_gscv_chi, DF_unseen_top)
-            profit_vote_chi = calc_profit(vote_gscv_chi, DF_unseen_top, treshold)
+            pred = vote_gscv_chi.predict(DF_unseen_top)
+            original = dsu.original.copy()
+            original.drop(columns="Response", inplace=True)
+            pred = pd.DataFrame(pred, columns=["Response"])
+            result = pd.concat([original, pred], axis=1)
+            result.to_csv("/Users/RodolfoSaldanha/Desktop/final.csv")
+            #auprc_vote_chi = assess_generalization_auprc(vote_gscv_chi, DF_unseen_top)
+            #profit_vote_chi = calc_profit(vote_gscv_chi, DF_unseen_top, treshold)
+
             #pd.DataFrame.from_dict(vote_gscv_chi.cv_results_).to_csv("vote_gscv_chi_" + str(seed) + ".csv")
 
             ##### DTA Feature Selection
@@ -663,7 +695,7 @@ def main():
             ##### Printing Results
             print("\n--------> CHISQ FEATURE SELECTION:\nBest parameter set with Chisq Selection: ",
                   vote_gscv_chi)
-            print("Chisq Selection AUPRC: {:.2f}".format(auprc_vote_chi))
+            #print("Chisq Selection AUPRC: {:.2f}".format(auprc_vote_chi))
 
             print("\n--------> DTA FEATURE SELECTION:\nBest parameter set with DTA Selection: ",
                   vote_gscv_dta)
@@ -671,11 +703,11 @@ def main():
 
             results_model.append("Vote_Chi")
             results_model.append("Vote_DTA")
-            results_auprc.append(auprc_vote_chi)
+            #results_auprc.append(auprc_vote_chi)
             results_auprc.append(auprc_vote_dta)
             results_param.append(vote_gscv_chi)
             results_param.append(vote_gscv_dta)
-            results_profit.append(profit_vote_chi)
+            #results_profit.append(profit_vote_chi)
             results_profit.append(profit_vote_dta)
 
         ########################################################################################################################
@@ -735,31 +767,6 @@ def main():
     print(results_profit)
     print(results_recal)
     print(results_precision)
-    best_param = pd.DataFrame({"Seed" : results_seeds, "Model" : results_model, "Best Parameters" : results_param})
-
-    results = pd.DataFrame({"Seed" : results_seeds, "Model" : results_model, "AUPRC" : results_auprc,
-                            "Profit": results_profit})
-
-    avgs_auprc = results.groupby(['Model']).mean()["AUPRC"]
-    result_avg_auprc = pd.DataFrame({"Avg. AUPRC" : avgs_auprc})
-
-    avgs_prof = results.groupby(['Model']).mean()["Profit"]
-    result_avgs_profit = pd.DataFrame({"Avg. Profit": avgs_prof})
-
-    results_avg = result_avg_auprc.join(result_avgs_profit, on='Model')
-
-    # Printing it all
-    print("\n\n----------------------------------------------------------------")
-    print("Best Parameters for each seed:\n")
-    print(best_param)
-    print("\n----------------------------------------------------------------")
-    print("Best Results for each seed:\n")
-    print(results)
-    print("\n----------------------------------------------------------------")
-    print("Average Results across all Seeds:\n")
-    print(results_avg)
-    print("\n----------------------------------------------------------------")
-
 
 
     #####################################################
@@ -770,9 +777,6 @@ def main():
     ensure_dir(summary_path)
     os.chdir(summary_path)
 
-    pd.DataFrame(best_param).to_csv("best_param_"+name+".csv")
-    pd.DataFrame(results).to_csv("results_"+name+".csv")
-    pd.DataFrame(results_avg).to_csv("results_avg_"+name+".csv")
 
 
 
@@ -780,7 +784,3 @@ def main():
     #plt.show()
 ########################################################################################################################
 ##### CALLING MAIN
-
-if __name__ == "__main__":
-    #main()
-    predict()

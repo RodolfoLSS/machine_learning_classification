@@ -170,6 +170,12 @@ class Processor:
         if (len(self.unseen[self.unseen.Income.isna()]) > 0):
             y_pred_un = lr_input_income(self.unseen)
             self.unseen.loc[self.unseen.Income.isna(), "Income"] = y_pred_un
+        else:
+            self.unseen["Marital_Status"] = pd.Categorical(self.unseen["Marital_Status"])
+            self.unseen["Marital_Status"] = self.unseen["Marital_Status"].cat.codes
+
+            self.unseen["Education"] = pd.Categorical(self.unseen["Education"])
+            self.unseen["Education"] = self.unseen["Education"].cat.codes
 
 
 

@@ -3,6 +3,7 @@ from sklearn.base import TransformerMixin
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import RandomOverSampler
 import pandas as pd
+import os
 
 class CustomScaler(TransformerMixin):
     def __init__(self, continuous_idx, dummies_idx):
@@ -32,3 +33,7 @@ def BalanceDataset(train_data):
     df_over = pd.DataFrame(X_resampled, columns=col)
     df_over['Response'] = y_resampled
     return df_over
+
+def ensure_dir(directory):
+    if not os.path.exists(directory):
+        os.mkdir(directory)

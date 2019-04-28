@@ -3,9 +3,11 @@ from typing import List
 
 import pandas as pd
 from datetime import datetime, date
+import numpy as np
+import time
 
 
-class Dataset:
+class Dataset2:
     """ Loads and prepares the data
 
         The objective of this class is load the dataset and execute basic data
@@ -40,7 +42,7 @@ class Dataset:
         self.rm_df.drop(out2.index, inplace=True)
         #self.rm_df.drop(out1.index, inplace=True)
 
-        metadata_features = ['Z_CostContact', 'Z_Revenue', "ID"]
+        metadata_features = ["ID"]
         self.rm_df.reset_index(drop=True, inplace=True)
         self.rm_df.drop(labels=metadata_features, axis=1, inplace=True)
 
@@ -105,6 +107,10 @@ class Dataset:
 
         # Gets a series of dates and its format as parameters and returns a series of days since that date until today.
         date_format = "%Y-%m-%d"
+        #self.rm_df.Dt_Customer.apply(lambda x:x.strftime("%Y.%m.%d",
+        #                                               time.gmtime(x.astype(int)/1000000000)))
+        self.rm_df["Dt_Customer"] = np.datetime_as_string(self.rm_df.Dt_Customer)
+        self.rm_df["Dt_Customer"] = self.rm_df["Dt_Customer"].apply(lambda x: x[:10])
 
         self.rm_df["Dt_Customer"] = self.rm_df["Dt_Customer"].apply(lambda x: (datetime.today()-datetime.strptime(x, date_format)).days)
 

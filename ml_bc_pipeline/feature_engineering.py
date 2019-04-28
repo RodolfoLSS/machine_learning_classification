@@ -292,8 +292,6 @@ class FeatureEngineer:
                 # 3) 1) 5) choose the best so far Box-Cox transformation based on Chi-Squared test
                 if chi_test_value > best_test_value:
                     best_test_value, best_trans_label, best_power_trans = chi_test_value, trans_key, feature_trans
-            if (feature == 'BxCxT_MntMeatProducts'):
-                print(best_trans_label)
             self.best_bx_cx_dict[feature] = (best_trans_label, best_power_trans)
             # 3) 2) append transformed feature to the data frame
             self.training[feature] = best_power_trans
